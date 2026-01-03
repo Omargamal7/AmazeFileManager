@@ -37,7 +37,9 @@ import com.amaze.filemanager.fileoperations.filesystem.usb.SingletonUsbOtg
 import com.amaze.filemanager.fileoperations.filesystem.usb.UsbOtgRepresentation
 import com.amaze.filemanager.filesystem.HybridFileParcelable
 import com.amaze.filemanager.filesystem.RootHelper
+import com.topjohnwu.superuser.Shell
 import java.net.URLDecoder
+import java.util.Locale
 
 /** Created by Vishal on 27-04-2017.  */
 object OTGUtil {
@@ -51,6 +53,56 @@ object OTGUtil {
     private const val PATH_SEPARATOR_ENCODED = "%2F"
     private const val PRIMARY_STORAGE_PREFIX = "primary%3AA"
     private const val PATH_ELEMENT_DOCUMENT = "document"
+
+    data class UsbFileSystemInfo(val blockDevice: String?, val fileSystem: String?)
+
+    data class MountResult(val mountPoint: String? = null, val error: String? = null) {
+        val isSuccess: Boolean
+            get() = !mountPoint.isNullOrEmpty() && error.isNullOrEmpty()
+    }
+
+    private fun parseBlkidLine(line: String): UsbFileSystemInfo? {
+        val block = line.substringBefore(":").trim().takeIf { it.isNotEmpty() }
+        val fsType =
+            Regex("TYPE=\"([^\"]+)\"")
+                .find(line)
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.let { mapToSupportedFileSystem(it) ?: it }
+        if (block == null && fsType == null) return null
+        return UsbFileSystemInfo(block, fsType)
+    }
+
+    private fun mapToSupportedFileSystem(fileSystem: String?): String? {
+        return when (fileSystem?.lowercase(Locale.US)) {
+            "vfat", "fat32", "msdos", "fat" -> "vfat"
+            "exfat" -> "exfat"
+            "ntfs", "ntfs3", "fuseblk" -> "ntfs"
+            else -> fileSystem
+        }
+    }
+
+    private fun deriveMountPoint(blockDevice: String?): String? {
+        val blockName = blockDevice?.substringAfterLast("/")?.takeIf { it.isNotBlank() }
+        return blockName?.let { "$PREFIX_MEDIA_REMOVABLE/$it" }
+    }
+
+    private fun readFileSystemFromBlkid(): UsbFileSystemInfo? {
+        return try {
+            val shell = Shell.getShell()
+            if (!shell.isRoot) return null
+            val result = Shell.su("blkid").exec()
+            val relevantLine =
+                result.out.firstOrNull { line ->
+                    line.contains("TYPE=") &&
+                        (line.contains("sd") || line.contains("usb") || line.contains("media"))
+                }
+            relevantLine?.let { parseBlkidLine(it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to read blkid output for usb device", e)
+            null
+        }
+    }
 
     /**
      * Returns an array of list of files at a specific path in OTG
@@ -204,6 +256,75 @@ object OTGUtil {
         return retval
     }
 
+    @JvmStatic
+    fun mountUsbMassStorage(device: UsbOtgRepresentation): MountResult {
+        return try {
+            if (!Shell.getShell().isRoot) {
+                return MountResult(error = "Root shell unavailable")
+            }
+
+            var blkInfo = UsbFileSystemInfo(device.blockDevicePath, device.fileSystem)
+            if (blkInfo.blockDevice == null || blkInfo.fileSystem == null) {
+                readFileSystemFromBlkid()?.let { detected ->
+                    blkInfo =
+                        UsbFileSystemInfo(
+                            blkInfo.blockDevice ?: detected.blockDevice,
+                            blkInfo.fileSystem ?: detected.fileSystem,
+                        )
+                }
+            }
+
+            val blockDevice =
+                blkInfo.blockDevice
+                    ?: return MountResult(error = "USB block device unavailable")
+            val fileSystem = mapToSupportedFileSystem(blkInfo.fileSystem) ?: "vfat"
+            val mountPoint =
+                deriveMountPoint(blockDevice) ?: return MountResult(error = "USB mountpoint unavailable")
+
+            val sanitizedBlock = RootHelper.getCommandLineString(blockDevice)
+            val sanitizedMount = RootHelper.getCommandLineString(mountPoint)
+
+            Shell.su("mkdir -p \"$sanitizedMount\"").exec()
+            val mountCommands =
+                mutableListOf("mount -t $fileSystem \"$sanitizedBlock\" \"$sanitizedMount\"")
+
+            if (fileSystem == "ntfs") {
+                mountCommands.add("ntfs-3g \"$sanitizedBlock\" \"$sanitizedMount\"")
+            } else if (fileSystem == "exfat") {
+                mountCommands.add("mount.exfat-fuse \"$sanitizedBlock\" \"$sanitizedMount\"")
+            }
+
+            var lastError: String? = null
+            for (command in mountCommands) {
+                val commandResult = Shell.su(command).exec()
+                if (commandResult.code == 0) {
+                    return MountResult(mountPoint = mountPoint)
+                }
+                lastError =
+                    (commandResult.err + commandResult.out).joinToString("\n").ifBlank {
+                        "Command '$command' failed with code ${commandResult.code}"
+                    }
+            }
+            MountResult(error = lastError)
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to mount usb storage", e)
+            MountResult(error = e.localizedMessage ?: e.javaClass.simpleName)
+        }
+    }
+
+    @JvmStatic
+    fun unmountUsbDeviceRoot(mountPoint: String?): Boolean {
+        if (mountPoint.isNullOrEmpty()) return false
+        return try {
+            val sanitizedMount = RootHelper.getCommandLineString(mountPoint)
+            val result = Shell.su("umount \"$sanitizedMount\"").exec()
+            result.code == 0
+        } catch (e: Exception) {
+            Log.w(TAG, "Unable to unmount usb storage at $mountPoint", e)
+            false
+        }
+    }
+
     /** Check if the usb uri is still accessible  */
     @RequiresApi(api = KITKAT)
     @JvmStatic
@@ -217,6 +338,7 @@ object OTGUtil {
     fun getMassStorageDevicesConnected(context: Context): List<UsbOtgRepresentation> {
         val usbManager = context.getSystemService(Context.USB_SERVICE) as? UsbManager
         val devices = usbManager?.deviceList ?: mapOf()
+        val fileSystemInfo = readFileSystemFromBlkid()
         return devices.mapNotNullTo(
             ArrayList(),
         ) { entry ->
@@ -227,9 +349,11 @@ object OTGUtil {
                     == UsbConstants.USB_CLASS_MASS_STORAGE
                 ) {
                     var serial: String? = null
+                    var productName: String? = null
                     if (SDK_INT >= LOLLIPOP) {
                         try {
                             serial = device.serialNumber
+                            productName = device.productName
                         } catch (ifPermissionDenied: SecurityException) {
                             // May happen when device is running Android 10 or above.
                             Log.w(
@@ -240,7 +364,15 @@ object OTGUtil {
                             )
                         }
                     }
-                    retval = UsbOtgRepresentation(device.productId, device.vendorId, serial)
+                    retval =
+                        UsbOtgRepresentation(
+                            device.productId,
+                            device.vendorId,
+                            serial,
+                            fileSystemInfo?.blockDevice,
+                            fileSystemInfo?.fileSystem,
+                            productName,
+                        )
                 }
             }
             retval

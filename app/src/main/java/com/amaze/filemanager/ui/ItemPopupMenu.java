@@ -28,16 +28,18 @@ import java.util.ArrayList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import com.amaze.filemanager.application.AppConfig;
 import com.amaze.filemanager.R;
 import com.amaze.filemanager.adapters.data.LayoutElementParcelable;
 import com.amaze.filemanager.asynchronous.services.EncryptService;
 import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException;
 import com.amaze.filemanager.fileoperations.filesystem.OpenMode;
+import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException;
 import com.amaze.filemanager.filesystem.HybridFileParcelable;
 import com.amaze.filemanager.filesystem.PasteHelper;
 import com.amaze.filemanager.filesystem.files.EncryptDecryptUtils;
 import com.amaze.filemanager.filesystem.files.FileUtils;
-import com.amaze.filemanager.filesystem.root.MountImageCommand;
+import com.amaze.filemanager.filesystem.root.MountIsoCommand;
 import com.amaze.filemanager.ui.activities.MainActivity;
 import com.amaze.filemanager.ui.dialogs.EncryptAuthenticateDialog;
 import com.amaze.filemanager.ui.dialogs.EncryptWithPresetPasswordSaveAsDialog;
@@ -269,6 +271,12 @@ public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClic
           rowItem.generateBaseFile(),
           mainActivity.getCurrentMainFragment().getMainFragmentViewModel().getCurrentPath());
       return true;
+    } else if (item.getItemId() == R.id.mount_image) {
+      handleMountImage();
+      return true;
+    } else if (item.getItemId() == R.id.unmount_image) {
+      handleUnmountImage();
+      return true;
     } else if (item.getItemId() == R.id.return_select) {
       mainFragment.returnIntentResults(new HybridFileParcelable[] {rowItem.generateBaseFile()});
       return true;
@@ -276,94 +284,78 @@ public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClic
     return false;
   }
 
-  private boolean ensureMountPrerequisites() {
-    if (rowItem.isDirectory || !isMountableImage(rowItem.desc) || rowItem.getMode() != OpenMode.FILE) {
-      Toast.makeText(context, R.string.operation_not_supported, Toast.LENGTH_SHORT).show();
-      return false;
-    }
+  private void handleMountImage() {
     if (!mainActivity.isRootExplorer()) {
-      Toast.makeText(context, R.string.mount_image_root_required, Toast.LENGTH_LONG).show();
-      return false;
+      AppConfig.toast(context, R.string.mount_image_requires_root);
+      return;
     }
-    if (!MountImageCommand.INSTANCE.supportsLoopDevices()) {
-      Toast.makeText(context, R.string.mount_image_loop_missing, Toast.LENGTH_LONG).show();
-      return false;
-    }
-    return true;
+
+    AppConfig.getInstance()
+        .runInBackground(
+            () -> {
+              try {
+                if (!MountIsoCommand.INSTANCE.supportsLoopDevices()) {
+                  AppConfig.toast(context, R.string.loop_device_not_supported);
+                  return;
+                }
+
+                String mountedPath = MountIsoCommand.INSTANCE.getMountedPath(rowItem.desc);
+                if (mountedPath != null) {
+                  AppConfig.toast(
+                      context,
+                      context.getString(R.string.image_mounted_to, mountedPath));
+                  return;
+                }
+
+                String mountPoint = MountIsoCommand.INSTANCE.getSuggestedMountPoint(rowItem.desc);
+                String resolvedMountPoint =
+                    MountIsoCommand.INSTANCE.mountImage(rowItem.desc, mountPoint);
+                if (resolvedMountPoint != null) {
+                  AppConfig.toast(
+                      context,
+                      context.getString(R.string.image_mounted_to, resolvedMountPoint));
+                } else {
+                  AppConfig.toast(context, R.string.mount_image_failed);
+                }
+              } catch (ShellNotRunningException e) {
+                LOG.error("Root shell not available for mounting {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.mount_image_requires_root);
+              } catch (Exception e) {
+                LOG.error("Unable to mount image {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.mount_image_failed);
+              }
+            });
   }
 
-  private boolean isMountableImage(String path) {
-    String lowerPath = path.toLowerCase();
-    return lowerPath.endsWith(".iso") || lowerPath.endsWith(".img");
-  }
-
-  private String buildMountPoint(String imagePath) {
-    File baseDir = mainActivity.getExternalFilesDir(null);
-    if (baseDir == null) {
-      baseDir = context.getCacheDir();
-    }
-    File mountRoot = new File(baseDir, "mounts");
-    String safeName = new File(imagePath).getName().replaceAll("[^a-zA-Z0-9._-]", "_");
-    return new File(mountRoot, safeName).getAbsolutePath();
-  }
-
-  private void refreshList() {
-    if (mainFragment.getMainFragmentViewModel() != null) {
-      mainFragment.loadlist(
-          mainFragment.getMainFragmentViewModel().getCurrentPath(),
-          false,
-          mainFragment.getMainFragmentViewModel().getOpenMode(),
-          true);
-    }
-  }
-
-  private class MountImageTask extends AsyncTask<String, Void, MountImageCommand.MountResult> {
-    private final boolean mount;
-    private String imagePath;
-
-    MountImageTask(boolean mount) {
-      this.mount = mount;
+  private void handleUnmountImage() {
+    if (!mainActivity.isRootExplorer()) {
+      AppConfig.toast(context, R.string.mount_image_requires_root);
+      return;
     }
 
-    @Override
-    protected MountImageCommand.MountResult doInBackground(String... paths) {
-      imagePath = paths[0];
-      try {
-        if (mount) {
-          return MountImageCommand.INSTANCE.mountImage(imagePath, buildMountPoint(imagePath));
-        } else {
-          return MountImageCommand.INSTANCE.unmountImage(imagePath);
-        }
-      } catch (ShellNotRunningException e) {
-        LOG.warn("Root shell unavailable for image mount {}", imagePath, e);
-        return new MountImageCommand.MountResult(false, null, context.getString(R.string.root_failure));
-      } catch (Exception e) {
-        LOG.warn("Unexpected failure during image mount action {}", imagePath, e);
-        return new MountImageCommand.MountResult(false, null, e.getMessage());
-      }
-    }
+    AppConfig.getInstance()
+        .runInBackground(
+            () -> {
+              try {
+                String mountedPath = MountIsoCommand.INSTANCE.getMountedPath(rowItem.desc);
+                if (mountedPath == null) {
+                  AppConfig.toast(context, R.string.image_not_mounted);
+                  return;
+                }
 
-    @Override
-    protected void onPostExecute(MountImageCommand.MountResult result) {
-      if (result == null) {
-        Toast.makeText(context, R.string.operation_unsuccesful, Toast.LENGTH_LONG).show();
-        return;
-      }
-      if (result.getSuccess()) {
-        String mountPoint = result.getMountPoint() == null ? rowItem.desc : result.getMountPoint();
-        int messageId = mount ? R.string.mount_image_success : R.string.unmount_image_success;
-        Toast.makeText(context, context.getString(messageId, mountPoint), Toast.LENGTH_LONG)
-            .show();
-        refreshList();
-      } else {
-        String errorMessage =
-            TextUtils.isEmpty(result.getErrorMessage())
-                ? context.getString(R.string.operation_unsuccesful)
-                : result.getErrorMessage();
-        int messageId = mount ? R.string.mount_image_failure : R.string.unmount_image_failure;
-        Toast.makeText(context, context.getString(messageId, errorMessage), Toast.LENGTH_LONG)
-            .show();
-      }
-    }
+                boolean unmounted = MountIsoCommand.INSTANCE.unmountImage(rowItem.desc);
+                if (unmounted) {
+                  AppConfig.toast(context, R.string.image_unmounted);
+                } else {
+                  AppConfig.toast(context, R.string.unmount_image_failed);
+                }
+              } catch (ShellNotRunningException e) {
+                LOG.error("Root shell not available for unmounting {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.mount_image_requires_root);
+              } catch (Exception e) {
+                LOG.error("Unable to unmount image {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.unmount_image_failed);
+              }
+            });
   }
 }

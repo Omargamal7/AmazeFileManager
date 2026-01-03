@@ -766,6 +766,17 @@ public class MainActivity extends PermissionsActivity
     } else {
       volumes = getStorageDirectoriesLegacy();
     }
+
+    String mountedOtgPath = SingletonUsbOtg.getInstance().getRootMountedPath();
+    if (!TextUtils.isEmpty(mountedOtgPath)
+        && !containsStoragePath(volumes, mountedOtgPath)) {
+      volumes.add(new StorageDirectoryParcelable(mountedOtgPath, "OTG", R.drawable.ic_usb_white_24dp));
+    } else if (SDK_INT >= KITKAT
+        && SingletonUsbOtg.getInstance().isDeviceConnected()
+        && !containsStoragePath(volumes, OTGUtil.PREFIX_OTG + "/")) {
+      volumes.add(new StorageDirectoryParcelable(OTGUtil.PREFIX_OTG + "/", "OTG", R.drawable.ic_usb_white_24dp));
+    }
+
     if (isRootExplorer()) {
       volumes.add(
           new StorageDirectoryParcelable(
@@ -916,6 +927,15 @@ public class MainActivity extends PermissionsActivity
     }
 
     return volumes;
+  }
+
+  private boolean containsStoragePath(List<StorageDirectoryParcelable> volumes, String path) {
+    for (StorageDirectoryParcelable storageDirectoryParcelable : volumes) {
+      if (storageDirectoryParcelable.path.equals(path)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   @Override
@@ -1379,33 +1399,42 @@ public class MainActivity extends PermissionsActivity
   /** Updates everything related to USB devices MUST ALWAYS be called after onResume() */
   @RequiresApi(api = Build.VERSION_CODES.KITKAT)
   private void updateUsbInformation() {
-    boolean isInformationUpdated = false;
+    boolean drawerNeedsRefresh = false;
     List<UsbOtgRepresentation> connectedDevices = OTGUtil.getMassStorageDevicesConnected(this);
+    UsbOtgRepresentation deviceToUse = null;
 
     if (!connectedDevices.isEmpty()) {
       if (SingletonUsbOtg.getInstance().getUsbOtgRoot() != null
           && OTGUtil.isUsbUriAccessible(this)) {
         for (UsbOtgRepresentation device : connectedDevices) {
           if (SingletonUsbOtg.getInstance().checkIfRootIsFromDevice(device)) {
-            isInformationUpdated = true;
+            deviceToUse = device;
             break;
           }
         }
 
-        if (!isInformationUpdated) {
+        if (deviceToUse == null) {
           SingletonUsbOtg.getInstance().resetUsbOtgRoot();
+          drawerNeedsRefresh = true;
         }
       }
 
-      if (!isInformationUpdated) {
-        SingletonUsbOtg.getInstance().setConnectedDevice(connectedDevices.get(0));
-        isInformationUpdated = true;
+      if (deviceToUse == null) {
+        deviceToUse = connectedDevices.get(0);
       }
+      SingletonUsbOtg.getInstance().setConnectedDevice(deviceToUse);
+      drawerNeedsRefresh = true;
+    } else {
+      String mountedPath = SingletonUsbOtg.getInstance().getRootMountedPath();
+      if (!TextUtils.isEmpty(mountedPath)) {
+        OTGUtil.unmountUsbDeviceRoot(mountedPath);
+      }
+      SingletonUsbOtg.getInstance().resetUsbOtgRoot();
+      drawerNeedsRefresh = true;
     }
 
-    if (!isInformationUpdated) {
-      SingletonUsbOtg.getInstance().resetUsbOtgRoot();
-      drawer.refreshDrawer();
+    if (deviceToUse != null) {
+      drawerNeedsRefresh |= mountUsbWithRoot(deviceToUse);
     }
 
     // Registering intent filter for OTG
@@ -1413,6 +1442,43 @@ public class MainActivity extends PermissionsActivity
     otgFilter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
     otgFilter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
     ContextCompat.registerReceiver(this, mOtgReceiver, otgFilter, ContextCompat.RECEIVER_EXPORTED);
+
+    if (drawerNeedsRefresh) {
+      drawer.refreshDrawer();
+    }
+  }
+
+  private boolean mountUsbWithRoot(UsbOtgRepresentation device) {
+    boolean drawerNeedsRefresh = false;
+    String mountedPath = SingletonUsbOtg.getInstance().getRootMountedPath();
+
+    if (!isRootExplorer()) {
+      if (!TextUtils.isEmpty(mountedPath)) {
+        OTGUtil.unmountUsbDeviceRoot(mountedPath);
+        SingletonUsbOtg.getInstance().setRootMountedPath(null);
+        drawerNeedsRefresh = true;
+      }
+      return drawerNeedsRefresh;
+    }
+
+    OTGUtil.MountResult mountResult = OTGUtil.mountUsbMassStorage(device);
+    if (mountResult.isSuccess()) {
+      if (!TextUtils.equals(mountedPath, mountResult.getMountPoint())) {
+        drawerNeedsRefresh = true;
+      }
+      SingletonUsbOtg.getInstance().setRootMountedPath(mountResult.getMountPoint());
+    } else {
+      if (!TextUtils.isEmpty(mountedPath)) {
+        OTGUtil.unmountUsbDeviceRoot(mountedPath);
+        SingletonUsbOtg.getInstance().setRootMountedPath(null);
+        drawerNeedsRefresh = true;
+      }
+      if (!TextUtils.isEmpty(mountResult.getError())) {
+        Toast.makeText(this, mountResult.getError(), Toast.LENGTH_SHORT).show();
+      }
+    }
+
+    return drawerNeedsRefresh;
   }
 
   /** Receiver to check if a USB device is connected at the runtime of application */
@@ -1426,9 +1492,14 @@ public class MainActivity extends PermissionsActivity
             if (!connectedDevices.isEmpty()) {
               SingletonUsbOtg.getInstance().resetUsbOtgRoot();
               SingletonUsbOtg.getInstance().setConnectedDevice(connectedDevices.get(0));
+              mountUsbWithRoot(connectedDevices.get(0));
               drawer.refreshDrawer();
             }
           } else if (intent.getAction().equals(UsbManager.ACTION_USB_DEVICE_DETACHED)) {
+            String mountedPath = SingletonUsbOtg.getInstance().getRootMountedPath();
+            if (!TextUtils.isEmpty(mountedPath)) {
+              OTGUtil.unmountUsbDeviceRoot(mountedPath);
+            }
             SingletonUsbOtg.getInstance().resetUsbOtgRoot();
             drawer.refreshDrawer();
             goToMain(null);
@@ -2048,6 +2119,10 @@ public class MainActivity extends PermissionsActivity
 
       if (SDK_INT >= KITKAT) {
         if (intent.getAction().equals(UsbManager.ACTION_USB_DEVICE_DETACHED)) {
+          String mountedPath = SingletonUsbOtg.getInstance().getRootMountedPath();
+          if (!TextUtils.isEmpty(mountedPath)) {
+            OTGUtil.unmountUsbDeviceRoot(mountedPath);
+          }
           SingletonUsbOtg.getInstance().resetUsbOtgRoot();
           drawer.refreshDrawer();
         }

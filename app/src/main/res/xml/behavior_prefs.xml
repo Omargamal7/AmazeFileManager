@@ -99,6 +99,24 @@
             app:key="legacyListing"
             app:summary="@string/legacy_listing_summary"
             app:title="@string/legacy_listing_title" />
+        <androidx.preference.ListPreference
+            app:defaultValue="ROOT_SHELL"
+            app:entries="@array/root_backend_entries"
+            app:entryValues="@array/root_backend_values"
+            app:key="root_backend"
+            app:summary="%s"
+            app:title="@string/root_backend_title" />
+        <androidx.preference.EditTextPreference
+            android:inputType="text"
+            app:key="root_adb_host"
+            app:summary="@string/root_backend_adb_host_summary"
+            app:title="@string/root_backend_adb_host" />
+        <androidx.preference.EditTextPreference
+            android:inputType="number"
+            app:defaultValue="5555"
+            app:key="root_adb_port"
+            app:summary="@string/root_backend_adb_port_summary"
+            app:title="@string/root_backend_adb_port" />
         <com.amaze.filemanager.ui.views.preference.CheckBox
             app:defaultValue="false"
             app:key="rootmode"

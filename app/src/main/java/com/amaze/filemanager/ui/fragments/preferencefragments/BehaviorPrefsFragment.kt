@@ -23,12 +23,15 @@ package com.amaze.filemanager.ui.fragments.preferencefragments
 import android.os.Bundle
 import android.os.Environment
 import android.text.InputType
+import androidx.preference.EditTextPreference
+import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.PreferenceManager
 import com.afollestad.materialdialogs.MaterialDialog
 import com.afollestad.materialdialogs.folderselector.FolderChooserDialog
 import com.amaze.filemanager.R
 import com.amaze.filemanager.application.AppConfig
+import com.amaze.filemanager.filesystem.root.base.RootCommandBackendManager
 import com.amaze.filemanager.ui.dialogs.OpenFileDialogFragment.Companion.clearPreferences
 import com.amaze.trashbin.TrashBinConfig
 import java.io.File
@@ -91,6 +94,7 @@ class BehaviorPrefsFragment : BasePrefsFragment(), FolderChooserDialog.FolderCal
                 trashBinCleanupInterval()
                 true
             }
+        setupRootBackendPreferences()
     }
 
     override fun onFolderSelection(
@@ -105,6 +109,17 @@ class BehaviorPrefsFragment : BasePrefsFragment(), FolderChooserDialog.FolderCal
             e.apply()
         }
         dialog.dismiss()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateRootBackendSummary()
+    }
+
+    private fun updateRootBackendSummary() {
+        findPreference<ListPreference>(PreferencesConstants.PREFERENCE_ROOT_BACKEND)?.summary =
+            RootCommandBackendManager.describeSelectedBackend(requireContext())
+        updateRootModeSummary()
     }
 
     private fun trashBinRetentionNumOfFiles() {
@@ -148,6 +163,54 @@ class BehaviorPrefsFragment : BasePrefsFragment(), FolderChooserDialog.FolderCal
         }
         dialogBuilder.onNegative { dialog, _ -> dialog.cancel() }
         dialogBuilder.build().show()
+    }
+
+    private fun setupRootBackendPreferences() {
+        val backendPreference =
+            findPreference<ListPreference>(PreferencesConstants.PREFERENCE_ROOT_BACKEND)
+        backendPreference?.summary =
+            RootCommandBackendManager.describeSelectedBackend(requireContext())
+        backendPreference?.setOnPreferenceChangeListener { _, newValue ->
+            RootCommandBackendManager.updateBackend(newValue)
+            backendPreference.summary =
+                RootCommandBackendManager.describeSelectedBackend(requireContext())
+            updateRootModeSummary()
+            true
+        }
+
+        val adbHostPreference =
+            findPreference<EditTextPreference>(PreferencesConstants.PREFERENCE_ROOT_ADB_HOST)
+        adbHostPreference?.setOnPreferenceChangeListener { _, _ ->
+            backendPreference?.summary =
+                RootCommandBackendManager.describeSelectedBackend(requireContext())
+            updateRootModeSummary()
+            true
+        }
+
+        val adbPortPreference =
+            findPreference<EditTextPreference>(PreferencesConstants.PREFERENCE_ROOT_ADB_PORT)
+        adbPortPreference?.setOnPreferenceChangeListener { preference, newValue ->
+            val coercedPort =
+                (newValue as? String)?.toIntOrNull()?.coerceIn(1, 65535)?.toString()
+            if (coercedPort != null) {
+                preference.text = coercedPort
+            }
+            backendPreference?.summary =
+                RootCommandBackendManager.describeSelectedBackend(requireContext())
+            updateRootModeSummary()
+            true
+        }
+        updateRootModeSummary()
+    }
+
+    private fun updateRootModeSummary() {
+        val rootPreference =
+            findPreference<com.amaze.filemanager.ui.views.preference.CheckBox>(
+                PreferencesConstants.PREFERENCE_ROOTMODE,
+            )
+        rootPreference?.summary =
+            getString(R.string.root_mode_summary) + "\n" +
+                RootCommandBackendManager.describeSelectedBackend(requireContext())
     }
 
     private fun trashBinRetentionDays() {

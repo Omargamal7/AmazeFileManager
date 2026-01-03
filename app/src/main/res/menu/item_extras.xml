@@ -55,9 +55,6 @@
         android:title="@string/extract"
         android:visible="false"/>
     <item
-        android:id="@+id/book"
-        android:title="@string/add_to_bookmarks" />
-    <item
         android:id="@+id/mount_image"
         android:title="@string/mount_image"
         android:visible="false" />
@@ -65,4 +62,7 @@
         android:id="@+id/unmount_image"
         android:title="@string/unmount_image"
         android:visible="false" />
+    <item
+        android:id="@+id/book"
+        android:title="@string/add_to_bookmarks" />
 </menu>
