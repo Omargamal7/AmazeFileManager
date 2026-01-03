@@ -32,6 +32,7 @@ import com.afollestad.materialdialogs.folderselector.FolderChooserDialog
 import com.amaze.filemanager.R
 import com.amaze.filemanager.application.AppConfig
 import com.amaze.filemanager.filesystem.root.base.RootCommandBackendManager
+import com.amaze.filemanager.filesystem.root.base.RootBackend
 import com.amaze.filemanager.ui.dialogs.OpenFileDialogFragment.Companion.clearPreferences
 import com.amaze.trashbin.TrashBinConfig
 import java.io.File
@@ -171,7 +172,26 @@ class BehaviorPrefsFragment : BasePrefsFragment(), FolderChooserDialog.FolderCal
         backendPreference?.summary =
             RootCommandBackendManager.describeSelectedBackend(requireContext())
         backendPreference?.setOnPreferenceChangeListener { _, newValue ->
-            RootCommandBackendManager.updateBackend(newValue)
+            val nextBackend = RootCommandBackendManager.parseBackend(newValue)
+            if (nextBackend == RootBackend.SHIZUKU &&
+                !RootCommandBackendManager.hasShizukuPermission()
+            ) {
+                backendPreference.summary =
+                    getString(R.string.root_backend_shizuku_requesting)
+                RootCommandBackendManager.requestShizukuPermission { granted, message ->
+                    if (granted) {
+                        RootCommandBackendManager.updateBackend(nextBackend.name)
+                        backendPreference.value = nextBackend.name
+                    } else if (message != null) {
+                        AppConfig.toast(requireContext(), message)
+                    }
+                    backendPreference.summary =
+                        RootCommandBackendManager.describeSelectedBackend(requireContext())
+                    updateRootModeSummary()
+                }
+                return@setOnPreferenceChangeListener false
+            }
+            RootCommandBackendManager.updateBackend(nextBackend.name)
             backendPreference.summary =
                 RootCommandBackendManager.describeSelectedBackend(requireContext())
             updateRootModeSummary()
@@ -201,6 +221,25 @@ class BehaviorPrefsFragment : BasePrefsFragment(), FolderChooserDialog.FolderCal
             true
         }
         updateRootModeSummary()
+
+        val rootPreference =
+            findPreference<com.amaze.filemanager.ui.views.preference.CheckBox>(
+                PreferencesConstants.PREFERENCE_ROOTMODE,
+            )
+        rootPreference?.setOnPreferenceChangeListener { _, newValue ->
+            val shouldEnable = newValue as? Boolean ?: false
+            if (shouldEnable) {
+                val capability = RootCommandBackendManager.capabilityFor()
+                if (!capability.available) {
+                    AppConfig.toast(
+                        requireContext(),
+                        capability.message ?: getString(R.string.root_backend_status_missing),
+                    )
+                    return@setOnPreferenceChangeListener false
+                }
+            }
+            true
+        }
     }
 
     private fun updateRootModeSummary() {
@@ -208,9 +247,23 @@ class BehaviorPrefsFragment : BasePrefsFragment(), FolderChooserDialog.FolderCal
             findPreference<com.amaze.filemanager.ui.views.preference.CheckBox>(
                 PreferencesConstants.PREFERENCE_ROOTMODE,
             )
+        val capability = RootCommandBackendManager.capabilityFor()
+        if (!capability.available && rootPreference?.isChecked == true) {
+            rootPreference.isChecked = false
+            activity.prefs.edit().putBoolean(PreferencesConstants.PREFERENCE_ROOTMODE, false).apply()
+        }
+        rootPreference?.isEnabled = capability.available
+        val statusLine = RootCommandBackendManager.describeSelectedBackend(requireContext())
+        val capabilityLine =
+            if (!capability.available && capability.message != null) {
+                "\n${capability.message}"
+            } else {
+                ""
+            }
         rootPreference?.summary =
             getString(R.string.root_mode_summary) + "\n" +
-                RootCommandBackendManager.describeSelectedBackend(requireContext())
+                statusLine +
+                capabilityLine
     }
 
     private fun trashBinRetentionDays() {
