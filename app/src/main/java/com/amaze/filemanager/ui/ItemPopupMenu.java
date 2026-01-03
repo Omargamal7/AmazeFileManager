@@ -25,14 +25,19 @@ import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.amaze.filemanager.R;
 import com.amaze.filemanager.adapters.data.LayoutElementParcelable;
 import com.amaze.filemanager.asynchronous.services.EncryptService;
+import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException;
 import com.amaze.filemanager.fileoperations.filesystem.OpenMode;
 import com.amaze.filemanager.filesystem.HybridFileParcelable;
 import com.amaze.filemanager.filesystem.PasteHelper;
 import com.amaze.filemanager.filesystem.files.EncryptDecryptUtils;
 import com.amaze.filemanager.filesystem.files.FileUtils;
+import com.amaze.filemanager.filesystem.root.MountImageCommand;
 import com.amaze.filemanager.ui.activities.MainActivity;
 import com.amaze.filemanager.ui.dialogs.EncryptAuthenticateDialog;
 import com.amaze.filemanager.ui.dialogs.EncryptWithPresetPasswordSaveAsDialog;
@@ -46,6 +51,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.AsyncTask;
+import android.text.TextUtils;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.PopupMenu;
@@ -62,6 +69,8 @@ import androidx.preference.PreferenceManager;
  * @author Emmanuel on 25/5/2017, at 16:39. Edited by bowiechen on 2019-10-19.
  */
 public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClickListener {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ItemPopupMenu.class);
 
   @NonNull private final Context context;
   @NonNull private final MainActivity mainActivity;
@@ -117,6 +126,18 @@ public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClic
           FileUtils.shareFiles(
               arrayList, mainActivity, utilitiesProvider.getAppTheme(), accentColor);
           break;
+      }
+      return true;
+    } else if (item.getItemId() == R.id.mount_image) {
+      if (ensureMountPrerequisites()) {
+        new MountImageTask(true).executeOnExecutor(
+            AsyncTask.THREAD_POOL_EXECUTOR, rowItem.desc);
+      }
+      return true;
+    } else if (item.getItemId() == R.id.unmount_image) {
+      if (ensureMountPrerequisites()) {
+        new MountImageTask(false).executeOnExecutor(
+            AsyncTask.THREAD_POOL_EXECUTOR, rowItem.desc);
       }
       return true;
     } else if (item.getItemId() == R.id.rename) {
@@ -253,5 +274,96 @@ public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClic
       return true;
     }
     return false;
+  }
+
+  private boolean ensureMountPrerequisites() {
+    if (rowItem.isDirectory || !isMountableImage(rowItem.desc) || rowItem.getMode() != OpenMode.FILE) {
+      Toast.makeText(context, R.string.operation_not_supported, Toast.LENGTH_SHORT).show();
+      return false;
+    }
+    if (!mainActivity.isRootExplorer()) {
+      Toast.makeText(context, R.string.mount_image_root_required, Toast.LENGTH_LONG).show();
+      return false;
+    }
+    if (!MountImageCommand.INSTANCE.supportsLoopDevices()) {
+      Toast.makeText(context, R.string.mount_image_loop_missing, Toast.LENGTH_LONG).show();
+      return false;
+    }
+    return true;
+  }
+
+  private boolean isMountableImage(String path) {
+    String lowerPath = path.toLowerCase();
+    return lowerPath.endsWith(".iso") || lowerPath.endsWith(".img");
+  }
+
+  private String buildMountPoint(String imagePath) {
+    File baseDir = mainActivity.getExternalFilesDir(null);
+    if (baseDir == null) {
+      baseDir = context.getCacheDir();
+    }
+    File mountRoot = new File(baseDir, "mounts");
+    String safeName = new File(imagePath).getName().replaceAll("[^a-zA-Z0-9._-]", "_");
+    return new File(mountRoot, safeName).getAbsolutePath();
+  }
+
+  private void refreshList() {
+    if (mainFragment.getMainFragmentViewModel() != null) {
+      mainFragment.loadlist(
+          mainFragment.getMainFragmentViewModel().getCurrentPath(),
+          false,
+          mainFragment.getMainFragmentViewModel().getOpenMode(),
+          true);
+    }
+  }
+
+  private class MountImageTask extends AsyncTask<String, Void, MountImageCommand.MountResult> {
+    private final boolean mount;
+    private String imagePath;
+
+    MountImageTask(boolean mount) {
+      this.mount = mount;
+    }
+
+    @Override
+    protected MountImageCommand.MountResult doInBackground(String... paths) {
+      imagePath = paths[0];
+      try {
+        if (mount) {
+          return MountImageCommand.INSTANCE.mountImage(imagePath, buildMountPoint(imagePath));
+        } else {
+          return MountImageCommand.INSTANCE.unmountImage(imagePath);
+        }
+      } catch (ShellNotRunningException e) {
+        LOG.warn("Root shell unavailable for image mount {}", imagePath, e);
+        return new MountImageCommand.MountResult(false, null, context.getString(R.string.root_failure));
+      } catch (Exception e) {
+        LOG.warn("Unexpected failure during image mount action {}", imagePath, e);
+        return new MountImageCommand.MountResult(false, null, e.getMessage());
+      }
+    }
+
+    @Override
+    protected void onPostExecute(MountImageCommand.MountResult result) {
+      if (result == null) {
+        Toast.makeText(context, R.string.operation_unsuccesful, Toast.LENGTH_LONG).show();
+        return;
+      }
+      if (result.getSuccess()) {
+        String mountPoint = result.getMountPoint() == null ? rowItem.desc : result.getMountPoint();
+        int messageId = mount ? R.string.mount_image_success : R.string.unmount_image_success;
+        Toast.makeText(context, context.getString(messageId, mountPoint), Toast.LENGTH_LONG)
+            .show();
+        refreshList();
+      } else {
+        String errorMessage =
+            TextUtils.isEmpty(result.getErrorMessage())
+                ? context.getString(R.string.operation_unsuccesful)
+                : result.getErrorMessage();
+        int messageId = mount ? R.string.mount_image_failure : R.string.unmount_image_failure;
+        Toast.makeText(context, context.getString(messageId, errorMessage), Toast.LENGTH_LONG)
+            .show();
+      }
+    }
   }
 }

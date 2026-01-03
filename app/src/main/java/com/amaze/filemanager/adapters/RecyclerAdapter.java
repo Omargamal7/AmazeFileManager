@@ -67,6 +67,7 @@ import com.amaze.filemanager.fileoperations.filesystem.OpenMode;
 import com.amaze.filemanager.filesystem.PasteHelper;
 import com.amaze.filemanager.filesystem.files.CryptUtil;
 import com.amaze.filemanager.filesystem.files.sort.DirSortBy;
+import com.amaze.filemanager.filesystem.root.MountImageCommand;
 import com.amaze.filemanager.ui.ItemPopupMenu;
 import com.amaze.filemanager.ui.activities.MainActivity;
 import com.amaze.filemanager.ui.activities.superclasses.PreferenceActivity;
@@ -1433,6 +1434,8 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
             sharedPrefs);
     popupMenu.inflate(R.menu.item_extras);
     String description = rowItem.desc.toLowerCase();
+    popupMenu.getMenu().findItem(R.id.mount_image).setVisible(false);
+    popupMenu.getMenu().findItem(R.id.unmount_image).setVisible(false);
 
     if (rowItem.isDirectory) {
       popupMenu.getMenu().findItem(R.id.open_with).setVisible(false);
@@ -1465,6 +1468,35 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
         popupMenu.getMenu().findItem(R.id.ex).setVisible(true);
         popupMenu.getMenu().findItem(R.id.compress).setVisible(false);
       }
+
+      boolean supportsMountAction =
+          mainFragment.getMainActivity() != null
+              && mainFragment.getMainActivity().isRootExplorer()
+              && MountImageCommand.INSTANCE.supportsLoopDevices();
+      if (rowItem.getMode() == OpenMode.FILE && isMountableImage(description)) {
+        if (supportsMountAction) {
+          try {
+            MountImageCommand.MountedImage mountedImage =
+                MountImageCommand.INSTANCE.resolveMountedImage(rowItem.desc);
+            if (mountedImage != null) {
+              popupMenu.getMenu().findItem(R.id.unmount_image).setVisible(true);
+              popupMenu
+                  .getMenu()
+                  .findItem(R.id.unmount_image)
+                  .setTitle(
+                      context.getString(
+                          R.string.unmount_image_at, mountedImage.getMountPoint()));
+            } else {
+              popupMenu.getMenu().findItem(R.id.mount_image).setVisible(true);
+            }
+          } catch (Exception e) {
+            LOG.warn("Failed to resolve mount state for {}", rowItem.desc, e);
+            popupMenu.getMenu().findItem(R.id.mount_image).setVisible(true);
+          }
+        } else {
+          popupMenu.getMenu().findItem(R.id.mount_image).setVisible(true);
+        }
+      }
     }
 
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN_MR2) {
@@ -1487,6 +1519,8 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
       popupMenu.getMenu().findItem(R.id.share).setVisible(false);
       popupMenu.getMenu().findItem(R.id.ex).setVisible(false);
       popupMenu.getMenu().findItem(R.id.book).setVisible(false);
+      popupMenu.getMenu().findItem(R.id.mount_image).setVisible(false);
+      popupMenu.getMenu().findItem(R.id.unmount_image).setVisible(false);
       popupMenu.getMenu().findItem(R.id.restore).setVisible(true);
       popupMenu.getMenu().findItem(R.id.delete).setVisible(true);
     }
@@ -1500,6 +1534,10 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
    *
    * @return true if there is an unfinished copy/paste operation, false otherwise.
    */
+  private boolean isMountableImage(String description) {
+    return description.endsWith(".iso") || description.endsWith(".img");
+  }
+
   private boolean hasPendingPasteOperation() {
     MainActivity mainActivity = mainFragment.getMainActivity();
     if (mainActivity == null) return false;
