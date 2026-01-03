@@ -64,7 +64,8 @@ public class UsbOtgTest {
     boolean hasOtgStorage = false;
     ArrayList<StorageDirectoryParcelable> storageDirectories = activity.getStorageDirectories();
     for (StorageDirectoryParcelable storageDirectory : storageDirectories) {
-      if (storageDirectory.path.startsWith(OTGUtil.PREFIX_OTG)) {
+      if (storageDirectory.path.startsWith(OTGUtil.PREFIX_OTG)
+          || storageDirectory.path.startsWith(OTGUtil.PREFIX_MEDIA_REMOVABLE)) {
         hasOtgStorage = true;
         break;
       }

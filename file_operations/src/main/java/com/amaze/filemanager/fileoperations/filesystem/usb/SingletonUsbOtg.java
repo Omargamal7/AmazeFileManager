@@ -34,12 +34,17 @@ public class SingletonUsbOtg {
   }
 
   private UsbOtgRepresentation connectedDevice = null;
+  private @Nullable String rootMountedPath;
   private @Nullable Uri usbOtgRoot;
 
   private SingletonUsbOtg() {}
 
   public void setConnectedDevice(UsbOtgRepresentation connectedDevice) {
     this.connectedDevice = connectedDevice;
+  }
+
+  public @Nullable UsbOtgRepresentation getConnectedDevice() {
+    return connectedDevice;
   }
 
   public boolean isDeviceConnected() {
@@ -54,13 +59,24 @@ public class SingletonUsbOtg {
   public void resetUsbOtgRoot() {
     connectedDevice = null;
     usbOtgRoot = null;
+    rootMountedPath = null;
   }
 
   public @Nullable Uri getUsbOtgRoot() {
     return usbOtgRoot;
   }
 
+  public void setRootMountedPath(@Nullable String rootMountedPath) {
+    this.rootMountedPath = rootMountedPath;
+  }
+
+  public @Nullable String getRootMountedPath() {
+    return rootMountedPath;
+  }
+
   public boolean checkIfRootIsFromDevice(@NonNull UsbOtgRepresentation device) {
-    return usbOtgRoot != null && connectedDevice.hashCode() == device.hashCode();
+    return usbOtgRoot != null
+        && connectedDevice != null
+        && connectedDevice.hashCode() == device.hashCode();
   }
 }

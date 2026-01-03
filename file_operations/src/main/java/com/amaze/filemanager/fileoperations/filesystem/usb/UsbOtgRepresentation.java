@@ -31,11 +31,33 @@ public class UsbOtgRepresentation {
 
   public final int productID, vendorID;
   public final @Nullable String serialNumber;
+  public final @Nullable String blockDevicePath;
+  public final @Nullable String fileSystem;
+  public final @Nullable String productName;
 
   public UsbOtgRepresentation(int productID, int vendorID, @Nullable String serialNumber) {
+    this(productID, vendorID, serialNumber, null, null, null);
+  }
+
+  public UsbOtgRepresentation(
+      int productID,
+      int vendorID,
+      @Nullable String serialNumber,
+      @Nullable String blockDevicePath,
+      @Nullable String fileSystem,
+      @Nullable String productName) {
     this.productID = productID;
     this.vendorID = vendorID;
     this.serialNumber = serialNumber;
+    this.blockDevicePath = blockDevicePath;
+    this.fileSystem = fileSystem;
+    this.productName = productName;
+  }
+
+  public UsbOtgRepresentation withFileSystem(
+      @Nullable String blockDevicePath, @Nullable String fileSystem) {
+    return new UsbOtgRepresentation(
+        productID, vendorID, serialNumber, blockDevicePath, fileSystem, productName);
   }
 
   /**
