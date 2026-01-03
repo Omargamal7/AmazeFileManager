@@ -71,6 +71,16 @@
     <string name="unmount_image">Unmount image</string>
     <string name="unmount_image_with_path">Unmount image (%1$s)</string>
     <string name="share">Share</string>
+    <string name="mount_image">Mount image</string>
+    <string name="unmount_image">Unmount image</string>
+    <string name="unmount_image_at">Unmount image (%1$s)</string>
+    <string name="mount_image_success">Mounted to %1$s</string>
+    <string name="mount_image_failure">Could not mount image: %1$s</string>
+    <string name="unmount_image_success">Unmounted from %1$s</string>
+    <string name="unmount_image_failure">Could not unmount image: %1$s</string>
+    <string name="mount_image_status">Mounted at %1$s</string>
+    <string name="mount_image_root_required">Root access is required to mount disk images.</string>
+    <string name="mount_image_loop_missing">Loop devices are not available on this device.</string>
     <string name="about">About</string>
     <string name="extract">Extract</string>
     <string name="compress">Compress</string>

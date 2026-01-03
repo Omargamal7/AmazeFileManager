@@ -32,6 +32,7 @@ import com.amaze.filemanager.application.AppConfig;
 import com.amaze.filemanager.R;
 import com.amaze.filemanager.adapters.data.LayoutElementParcelable;
 import com.amaze.filemanager.asynchronous.services.EncryptService;
+import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException;
 import com.amaze.filemanager.fileoperations.filesystem.OpenMode;
 import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException;
 import com.amaze.filemanager.filesystem.HybridFileParcelable;
@@ -52,6 +53,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.AsyncTask;
+import android.text.TextUtils;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.PopupMenu;
@@ -125,6 +128,18 @@ public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClic
           FileUtils.shareFiles(
               arrayList, mainActivity, utilitiesProvider.getAppTheme(), accentColor);
           break;
+      }
+      return true;
+    } else if (item.getItemId() == R.id.mount_image) {
+      if (ensureMountPrerequisites()) {
+        new MountImageTask(true).executeOnExecutor(
+            AsyncTask.THREAD_POOL_EXECUTOR, rowItem.desc);
+      }
+      return true;
+    } else if (item.getItemId() == R.id.unmount_image) {
+      if (ensureMountPrerequisites()) {
+        new MountImageTask(false).executeOnExecutor(
+            AsyncTask.THREAD_POOL_EXECUTOR, rowItem.desc);
       }
       return true;
     } else if (item.getItemId() == R.id.rename) {

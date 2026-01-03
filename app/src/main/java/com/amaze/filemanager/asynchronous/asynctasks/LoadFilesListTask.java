@@ -51,6 +51,7 @@ import com.amaze.filemanager.filesystem.cloud.CloudUtil;
 import com.amaze.filemanager.filesystem.files.FileListSorter;
 import com.amaze.filemanager.filesystem.files.sort.SortType;
 import com.amaze.filemanager.filesystem.root.ListFilesCommand;
+import com.amaze.filemanager.filesystem.root.MountImageCommand;
 import com.amaze.filemanager.ui.activities.MainActivityViewModel;
 import com.amaze.filemanager.ui.fragments.CloudSheetFragment;
 import com.amaze.filemanager.ui.fragments.MainFragment;
@@ -75,6 +76,7 @@ import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Bundle;
 import android.provider.MediaStore;
+import android.text.TextUtils;
 import android.text.format.Formatter;
 import android.widget.Toast;
 
@@ -345,6 +347,7 @@ public class LoadFilesListTask
 
     String size = "";
     long longSize = 0;
+    String mountPoint = null;
 
     if (!baseFile.isDirectory()) {
       if (baseFile.getSize() != -1) {
@@ -355,6 +358,27 @@ public class LoadFilesListTask
           LOG.warn("failed to create list parcelables", e);
         }
       }
+
+      if (baseFile.getMode() == OpenMode.FILE
+          && mainFragment.getMainActivity() != null
+          && mainFragment.getMainActivity().isRootExplorer()
+          && MountImageCommand.INSTANCE.supportsLoopDevices()
+          && isMountableImage(baseFile.getPath())) {
+        try {
+          MountImageCommand.MountedImage mountedImage =
+              MountImageCommand.INSTANCE.resolveMountedImage(baseFile.getPath());
+          if (mountedImage != null) {
+            mountPoint = mountedImage.getMountPoint();
+          }
+        } catch (Exception e) {
+          LOG.warn("Failed to resolve mount status for {}", baseFile.getPath(), e);
+        }
+      }
+    }
+
+    if (!TextUtils.isEmpty(mountPoint)) {
+      String mountStatus = context.getString(R.string.mount_image_status, mountPoint);
+      size = TextUtils.isEmpty(size) ? mountStatus : size + " • " + mountStatus;
     }
 
     LayoutElementParcelable layoutElement =
@@ -372,6 +396,11 @@ public class LoadFilesListTask
             showThumbs,
             baseFile.getMode());
     return layoutElement;
+  }
+
+  private boolean isMountableImage(String path) {
+    String lowerPath = path.toLowerCase();
+    return lowerPath.endsWith(".iso") || lowerPath.endsWith(".img");
   }
 
   private List<LayoutElementParcelable> listImages() {
