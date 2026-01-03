@@ -78,4 +78,15 @@
         <item>@string/protocol_ftps</item>
     </string-array>
 
+    <string-array name="root_backend_entries">
+        <item>@string/root_backend_root_shell</item>
+        <item>@string/root_backend_shizuku</item>
+        <item>@string/root_backend_adb_tcp</item>
+    </string-array>
+    <string-array name="root_backend_values">
+        <item>ROOT_SHELL</item>
+        <item>SHIZUKU</item>
+        <item>ADB_TCP</item>
+    </string-array>
+
 </resources>

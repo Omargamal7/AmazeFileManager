@@ -72,6 +72,9 @@ object PreferencesConstants {
     // behavior_prefs.xml
     const val PREFERENCE_ROOT_LEGACY_LISTING = "legacyListing"
     const val PREFERENCE_ROOTMODE = "rootmode"
+    const val PREFERENCE_ROOT_BACKEND = "root_backend"
+    const val PREFERENCE_ROOT_ADB_HOST = "root_adb_host"
+    const val PREFERENCE_ROOT_ADB_PORT = "root_adb_port"
     const val PREFERENCE_CHANGEPATHS = "typeablepaths"
     const val PREFERENCE_SAVED_PATHS = "savepaths"
     const val PREFERENCE_ZIP_EXTRACT_PATH = "extractpath"
