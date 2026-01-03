@@ -25,14 +25,20 @@ import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.amaze.filemanager.application.AppConfig;
 import com.amaze.filemanager.R;
 import com.amaze.filemanager.adapters.data.LayoutElementParcelable;
 import com.amaze.filemanager.asynchronous.services.EncryptService;
 import com.amaze.filemanager.fileoperations.filesystem.OpenMode;
+import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException;
 import com.amaze.filemanager.filesystem.HybridFileParcelable;
 import com.amaze.filemanager.filesystem.PasteHelper;
 import com.amaze.filemanager.filesystem.files.EncryptDecryptUtils;
 import com.amaze.filemanager.filesystem.files.FileUtils;
+import com.amaze.filemanager.filesystem.root.MountIsoCommand;
 import com.amaze.filemanager.ui.activities.MainActivity;
 import com.amaze.filemanager.ui.dialogs.EncryptAuthenticateDialog;
 import com.amaze.filemanager.ui.dialogs.EncryptWithPresetPasswordSaveAsDialog;
@@ -62,6 +68,8 @@ import androidx.preference.PreferenceManager;
  * @author Emmanuel on 25/5/2017, at 16:39. Edited by bowiechen on 2019-10-19.
  */
 public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClickListener {
+
+  private static final Logger LOG = LoggerFactory.getLogger(ItemPopupMenu.class);
 
   @NonNull private final Context context;
   @NonNull private final MainActivity mainActivity;
@@ -248,10 +256,91 @@ public class ItemPopupMenu extends PopupMenu implements PopupMenu.OnMenuItemClic
           rowItem.generateBaseFile(),
           mainActivity.getCurrentMainFragment().getMainFragmentViewModel().getCurrentPath());
       return true;
+    } else if (item.getItemId() == R.id.mount_image) {
+      handleMountImage();
+      return true;
+    } else if (item.getItemId() == R.id.unmount_image) {
+      handleUnmountImage();
+      return true;
     } else if (item.getItemId() == R.id.return_select) {
       mainFragment.returnIntentResults(new HybridFileParcelable[] {rowItem.generateBaseFile()});
       return true;
     }
     return false;
+  }
+
+  private void handleMountImage() {
+    if (!mainActivity.isRootExplorer()) {
+      AppConfig.toast(context, R.string.mount_image_requires_root);
+      return;
+    }
+
+    AppConfig.getInstance()
+        .runInBackground(
+            () -> {
+              try {
+                if (!MountIsoCommand.INSTANCE.supportsLoopDevices()) {
+                  AppConfig.toast(context, R.string.loop_device_not_supported);
+                  return;
+                }
+
+                String mountedPath = MountIsoCommand.INSTANCE.getMountedPath(rowItem.desc);
+                if (mountedPath != null) {
+                  AppConfig.toast(
+                      context,
+                      context.getString(R.string.image_mounted_to, mountedPath));
+                  return;
+                }
+
+                String mountPoint = MountIsoCommand.INSTANCE.getSuggestedMountPoint(rowItem.desc);
+                String resolvedMountPoint =
+                    MountIsoCommand.INSTANCE.mountImage(rowItem.desc, mountPoint);
+                if (resolvedMountPoint != null) {
+                  AppConfig.toast(
+                      context,
+                      context.getString(R.string.image_mounted_to, resolvedMountPoint));
+                } else {
+                  AppConfig.toast(context, R.string.mount_image_failed);
+                }
+              } catch (ShellNotRunningException e) {
+                LOG.error("Root shell not available for mounting {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.mount_image_requires_root);
+              } catch (Exception e) {
+                LOG.error("Unable to mount image {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.mount_image_failed);
+              }
+            });
+  }
+
+  private void handleUnmountImage() {
+    if (!mainActivity.isRootExplorer()) {
+      AppConfig.toast(context, R.string.mount_image_requires_root);
+      return;
+    }
+
+    AppConfig.getInstance()
+        .runInBackground(
+            () -> {
+              try {
+                String mountedPath = MountIsoCommand.INSTANCE.getMountedPath(rowItem.desc);
+                if (mountedPath == null) {
+                  AppConfig.toast(context, R.string.image_not_mounted);
+                  return;
+                }
+
+                boolean unmounted = MountIsoCommand.INSTANCE.unmountImage(rowItem.desc);
+                if (unmounted) {
+                  AppConfig.toast(context, R.string.image_unmounted);
+                } else {
+                  AppConfig.toast(context, R.string.unmount_image_failed);
+                }
+              } catch (ShellNotRunningException e) {
+                LOG.error("Root shell not available for unmounting {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.mount_image_requires_root);
+              } catch (Exception e) {
+                LOG.error("Unable to unmount image {}", rowItem.desc, e);
+                AppConfig.toast(context, R.string.unmount_image_failed);
+              }
+            });
   }
 }

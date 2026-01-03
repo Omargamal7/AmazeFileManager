@@ -78,6 +78,7 @@ import com.amaze.filemanager.ui.icons.Icons;
 import com.amaze.filemanager.ui.icons.MimeTypes;
 import com.amaze.filemanager.ui.provider.UtilitiesProvider;
 import com.amaze.filemanager.ui.selection.SelectionPopupMenu;
+import com.amaze.filemanager.filesystem.root.MountIsoCommand;
 import com.amaze.filemanager.ui.theme.AppTheme;
 import com.amaze.filemanager.ui.views.CircleGradientDrawable;
 import com.amaze.filemanager.utils.AnimUtils;
@@ -1444,6 +1445,9 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
     } else {
       popupMenu.getMenu().findItem(R.id.book).setVisible(false);
       popupMenu.getMenu().findItem(R.id.compress).setVisible(true);
+      popupMenu.getMenu().findItem(R.id.mount_image).setVisible(false);
+      popupMenu.getMenu().findItem(R.id.unmount_image).setVisible(false);
+      popupMenu.getMenu().findItem(R.id.unmount_image).setTitle(R.string.unmount_image);
 
       if (description.endsWith(fileExtensionZip)
           || description.endsWith(fileExtensionJar)
@@ -1464,6 +1468,25 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
           || description.endsWith(fileExtensionXz)) {
         popupMenu.getMenu().findItem(R.id.ex).setVisible(true);
         popupMenu.getMenu().findItem(R.id.compress).setVisible(false);
+      }
+
+      if (mainFragment.getMainActivity().isRootExplorer()
+          && (rowItem.getMode() == OpenMode.FILE || rowItem.getMode() == OpenMode.ROOT)
+          && (description.endsWith(".iso") || description.endsWith(".img"))) {
+        popupMenu.getMenu().findItem(R.id.mount_image).setVisible(true);
+        try {
+          String mountedPath = MountIsoCommand.INSTANCE.getMountedPath(rowItem.desc);
+          if (mountedPath != null) {
+            popupMenu.getMenu().findItem(R.id.mount_image).setVisible(false);
+            popupMenu.getMenu().findItem(R.id.unmount_image).setVisible(true);
+            popupMenu
+                .getMenu()
+                .findItem(R.id.unmount_image)
+                .setTitle(context.getString(R.string.unmount_image_with_path, mountedPath));
+          }
+        } catch (Exception e) {
+          LOG.error("Unable to resolve mount state for {}", rowItem.desc, e);
+        }
       }
     }
 
@@ -1487,6 +1510,8 @@ public class RecyclerAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolde
       popupMenu.getMenu().findItem(R.id.share).setVisible(false);
       popupMenu.getMenu().findItem(R.id.ex).setVisible(false);
       popupMenu.getMenu().findItem(R.id.book).setVisible(false);
+      popupMenu.getMenu().findItem(R.id.mount_image).setVisible(false);
+      popupMenu.getMenu().findItem(R.id.unmount_image).setVisible(false);
       popupMenu.getMenu().findItem(R.id.restore).setVisible(true);
       popupMenu.getMenu().findItem(R.id.delete).setVisible(true);
     }
