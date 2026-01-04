@@ -118,7 +118,10 @@
     <string name="root_backend_status_missing">unavailable</string>
     <string name="root_backend_missing_root_shell">Root shell not available</string>
     <string name="root_backend_missing_shizuku">Shizuku service not available</string>
+    <string name="root_backend_shizuku_permission_required">Grant Shizuku permission to Amaze</string>
+    <string name="root_backend_shizuku_requesting">Requesting Shizuku permission…</string>
     <string name="root_backend_missing_adb_tcp">ADB over network not configured</string>
+    <string name="root_backend_missing_adb_binary">ADB client is not available on this device</string>
     <string name="root_backend_adb_host">ADB host</string>
     <string name="root_backend_adb_host_summary">Hostname or IP for network ADB</string>
     <string name="root_backend_adb_port">ADB port</string>

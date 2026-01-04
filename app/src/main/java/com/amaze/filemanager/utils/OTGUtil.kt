@@ -37,7 +37,8 @@ import com.amaze.filemanager.fileoperations.filesystem.usb.SingletonUsbOtg
 import com.amaze.filemanager.fileoperations.filesystem.usb.UsbOtgRepresentation
 import com.amaze.filemanager.filesystem.HybridFileParcelable
 import com.amaze.filemanager.filesystem.RootHelper
-import com.topjohnwu.superuser.Shell
+import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException
+import com.amaze.filemanager.filesystem.root.base.RootCommandBackendManager
 import java.net.URLDecoder
 import java.util.Locale
 
@@ -89,15 +90,18 @@ object OTGUtil {
 
     private fun readFileSystemFromBlkid(): UsbFileSystemInfo? {
         return try {
-            val shell = Shell.getShell()
-            if (!shell.isRoot) return null
-            val result = Shell.su("blkid").exec()
+            val capability = RootCommandBackendManager.capabilityFor()
+            if (!capability.available) return null
+            val result = RootCommandBackendManager.runCommand("blkid")
             val relevantLine =
                 result.out.firstOrNull { line ->
                     line.contains("TYPE=") &&
                         (line.contains("sd") || line.contains("usb") || line.contains("media"))
                 }
             relevantLine?.let { parseBlkidLine(it) }
+        } catch (e: ShellNotRunningException) {
+            Log.w(TAG, "Unable to read blkid output for usb device: ${e.message}")
+            null
         } catch (e: Exception) {
             Log.w(TAG, "Unable to read blkid output for usb device", e)
             null
@@ -259,8 +263,11 @@ object OTGUtil {
     @JvmStatic
     fun mountUsbMassStorage(device: UsbOtgRepresentation): MountResult {
         return try {
-            if (!Shell.getShell().isRoot) {
-                return MountResult(error = "Root shell unavailable")
+            val capability = RootCommandBackendManager.capabilityFor()
+            if (!capability.available) {
+                return MountResult(
+                    error = capability.message ?: "Elevated command backend unavailable",
+                )
             }
 
             var blkInfo = UsbFileSystemInfo(device.blockDevicePath, device.fileSystem)
@@ -284,7 +291,7 @@ object OTGUtil {
             val sanitizedBlock = RootHelper.getCommandLineString(blockDevice)
             val sanitizedMount = RootHelper.getCommandLineString(mountPoint)
 
-            Shell.su("mkdir -p \"$sanitizedMount\"").exec()
+            RootCommandBackendManager.runCommand("mkdir -p \"$sanitizedMount\"")
             val mountCommands =
                 mutableListOf("mount -t $fileSystem \"$sanitizedBlock\" \"$sanitizedMount\"")
 
@@ -296,7 +303,7 @@ object OTGUtil {
 
             var lastError: String? = null
             for (command in mountCommands) {
-                val commandResult = Shell.su(command).exec()
+                val commandResult = RootCommandBackendManager.runCommand(command)
                 if (commandResult.code == 0) {
                     return MountResult(mountPoint = mountPoint)
                 }
@@ -306,6 +313,9 @@ object OTGUtil {
                     }
             }
             MountResult(error = lastError)
+        } catch (e: ShellNotRunningException) {
+            Log.w(TAG, "Unable to mount usb storage: ${e.message}")
+            MountResult(error = e.localizedMessage ?: "Elevated command failed")
         } catch (e: Exception) {
             Log.w(TAG, "Unable to mount usb storage", e)
             MountResult(error = e.localizedMessage ?: e.javaClass.simpleName)
@@ -317,8 +327,11 @@ object OTGUtil {
         if (mountPoint.isNullOrEmpty()) return false
         return try {
             val sanitizedMount = RootHelper.getCommandLineString(mountPoint)
-            val result = Shell.su("umount \"$sanitizedMount\"").exec()
+            val result = RootCommandBackendManager.runCommand("umount \"$sanitizedMount\"")
             result.code == 0
+        } catch (e: ShellNotRunningException) {
+            Log.w(TAG, "Unable to unmount usb storage at $mountPoint: ${e.message}")
+            false
         } catch (e: Exception) {
             Log.w(TAG, "Unable to unmount usb storage at $mountPoint", e)
             false

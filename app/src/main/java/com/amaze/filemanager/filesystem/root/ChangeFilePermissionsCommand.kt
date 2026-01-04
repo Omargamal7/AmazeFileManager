@@ -23,7 +23,7 @@ package com.amaze.filemanager.filesystem.root
 import com.amaze.filemanager.fileoperations.exceptions.ShellNotRunningException
 import com.amaze.filemanager.filesystem.RootHelper
 import com.amaze.filemanager.filesystem.root.base.IRootCommand
-import com.topjohnwu.superuser.Shell
+import com.amaze.filemanager.filesystem.root.base.RootCommandResult
 
 object ChangeFilePermissionsCommand : IRootCommand() {
     private const val CHMOD_COMMAND = "chmod %s %o \"%s\""
@@ -53,7 +53,7 @@ object ChangeFilePermissionsCommand : IRootCommand() {
                 RootHelper.getCommandLineString(filePath),
             )
 
-        runShellCommand(command).let { result: Shell.Result ->
+        runShellCommand(command).let { result: RootCommandResult ->
             if (result.code < 0) {
                 onOperationPerform(false)
             } else {
